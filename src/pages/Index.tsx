@@ -174,213 +174,662 @@ function ActionBtn({ label, color, size = 64, onPress, icon }: { label: string; 
   );
 }
 
+// ═══ WEB AUDIO SOUNDS ═══
+function createAudioCtx() {
+  return new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+}
+
+function playShoot(accentColor: string) {
+  try {
+    const ctx = createAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "square";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.start(); osc.stop(ctx.currentTime + 0.15);
+    void accentColor;
+  } catch (_) { /* silent */ }
+}
+
+function playHit() {
+  try {
+    const ctx = createAudioCtx();
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    const src = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    src.buffer = buf; src.connect(gain); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    src.start();
+  } catch (_) { /* silent */ }
+}
+
+function playAbility() {
+  try {
+    const ctx = createAudioCtx();
+    [0, 0.05, 0.1].forEach((t, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(220 + i * 150, ctx.currentTime + t);
+      osc.frequency.exponentialRampToValueAtTime(880 + i * 200, ctx.currentTime + t + 0.25);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime + t);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25);
+      osc.start(ctx.currentTime + t); osc.stop(ctx.currentTime + t + 0.25);
+    });
+  } catch (_) { /* silent */ }
+}
+
+function playStep() {
+  try {
+    const ctx = createAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(80, ctx.currentTime);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+    osc.start(); osc.stop(ctx.currentTime + 0.08);
+  } catch (_) { /* silent */ }
+}
+
+function playEnemyHit() {
+  try {
+    const ctx = createAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(300, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.2);
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    osc.start(); osc.stop(ctx.currentTime + 0.2);
+  } catch (_) { /* silent */ }
+}
+
 // ═══ GAME SCREEN ═══
 function GameScreen({ char, onBack }: { char: typeof characters[0]; onBack: () => void }) {
+  // Player state
+  const [playerX, setPlayerX] = useState(120);
+  const [playerY, setPlayerY] = useState(300);
+  const [velY, setVelY] = useState(0);
+  const [isOnGround, setIsOnGround] = useState(true);
+  const [isCrouch, setIsCrouch] = useState(false);
+  const [facingRight, setFacingRight] = useState(true);
+
+  // Combat state
   const [hp, setHp] = useState(char.hp);
   const [energy, setEnergy] = useState(char.stats.энергия);
-  const [isCrouch, setIsCrouch] = useState(false);
-  const [isJump, setIsJump] = useState(false);
-  const [abilityActive, setAbilityActive] = useState(false);
   const [abilityCD, setAbilityCD] = useState(0);
-  const [log, setLog] = useState<string[]>([]);
-  const [enemyHp, setEnemyHp] = useState(100);
-  const [shake, setShake] = useState(false);
+  const [abilityActive, setAbilityActive] = useState(false);
+  const [isShooting, setIsShooting] = useState(false);
 
-  const addLog = (msg: string) => setLog(prev => [msg, ...prev].slice(0, 3));
+  // Enemies: {id, x, y, hp, maxHp, alive, hit}
+  const [enemies, setEnemies] = useState([
+    { id: 1, x: 520, y: 290, hp: 60, maxHp: 60, alive: true, hit: false },
+    { id: 2, x: 720, y: 290, hp: 80, maxHp: 80, alive: true, hit: false },
+    { id: 3, x: 620, y: 180, hp: 50, maxHp: 50, alive: true, hit: false },
+  ]);
 
-  const doFire = () => {
-    const dmg = Math.floor(char.stats.атака * 0.3 + Math.random() * 20);
-    setEnemyHp(p => Math.max(0, p - dmg));
-    addLog(`Выстрел! -${dmg} HP`);
-    setShake(true); setTimeout(() => setShake(false), 300);
-  };
+  // Bullets
+  const [bullets, setBullets] = useState<{ id: number; x: number; y: number; vx: number }[]>([]);
+  const bulletId = useRef(0);
 
-  const doMelee = () => {
-    const dmg = Math.floor(char.stats.атака * 0.5 + Math.random() * 15);
-    setEnemyHp(p => Math.max(0, p - dmg));
-    addLog(`Удар! -${dmg} HP`);
-  };
+  // Log
+  const [log, setLog] = useState<string[]>(["WASD / стрелки — движение", "Пробел — прыжок", "C — присесть | F — огонь"]);
 
-  const doAbility = () => {
-    if (abilityCD > 0 || energy < 30) { addLog(abilityCD > 0 ? `Перезарядка ${abilityCD}с` : "Мало энергии!"); return; }
-    setAbilityActive(true);
-    setEnergy(p => Math.max(0, p - 30));
-    setEnemyHp(p => Math.max(0, p - Math.floor(char.stats.атака * 0.8 + 20)));
-    addLog(`[${char.ability}]!`);
-    setAbilityCD(5);
-    setTimeout(() => setAbilityActive(false), 1200);
-    const iv = setInterval(() => setAbilityCD(p => { if (p <= 1) { clearInterval(iv); return 0; } return p - 1; }), 1000);
-  };
+  // Keyboard state
+  const keys = useRef<Record<string, boolean>>({});
 
-  const doHeal = () => { setHp(p => Math.min(char.hp, p + 20)); addLog("+20 HP аптечка"); };
-  const doCrouch = () => { setIsCrouch(p => !p); addLog(isCrouch ? "Встал" : "Присел (-50% урон)"); };
-  const doJump = () => {
-    if (isJump) return;
-    setIsJump(true); addLog("Прыжок!");
-    setTimeout(() => setIsJump(false), 600);
-  };
+  // Canvas/scene size
+  const SCENE_W = 900;
+  const SCENE_H = 420;
+  const FLOOR_Y = 320;
+  const GRAVITY = 0.6;
+  const JUMP_V = -13;
+  const SPEED = 3.5;
 
+  // Walls/platforms
+  const walls = [
+    { x: 0, y: FLOOR_Y, w: SCENE_W, h: 100, label: "" },        // floor
+    { x: 300, y: 240, w: 120, h: 14, label: "ПЛАТФОРМА" },       // platform 1
+    { x: 550, y: 200, w: 100, h: 14, label: "ПЛАТФОРМА" },       // platform 2
+    { x: 750, y: 260, w: 80, h: 14, label: "" },                 // platform 3
+    { x: 0, y: 0, w: 14, h: SCENE_H, label: "" },                // left wall
+    { x: SCENE_W - 14, y: 0, w: 14, h: SCENE_H, label: "" },    // right wall
+  ];
+
+  const addLog = useCallback((msg: string) => {
+    setLog(prev => [msg, ...prev].slice(0, 4));
+  }, []);
+
+  // Keyboard listeners
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      keys.current[e.code] = true;
+      if (e.code === "Space") e.preventDefault();
+      if (e.code === "KeyC") setIsCrouch(p => !p);
+      if (e.code === "KeyF" || e.code === "Enter") doFireRef.current();
+      if (e.code === "KeyE") doAbilityRef.current();
+      if (e.code === "KeyH") doHealRef.current();
+    };
+    const up = (e: KeyboardEvent) => { keys.current[e.code] = false; };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
+  }, []);
+
+  // Joystick direction ref
+  const joystickDir = useRef({ x: 0, y: 0 });
+
+  // Action refs (stable)
+  const doFireRef = useRef(() => {});
+  const doAbilityRef = useRef(() => {});
+  const doHealRef = useRef(() => {});
+
+  // AABB collision helper
+  const isColliding = (px: number, py: number, pw: number, ph: number, wx: number, wy: number, ww: number, wh: number) =>
+    px < wx + ww && px + pw > wx && py < wy + wh && py + ph > wy;
+
+  // Game loop
+  useEffect(() => {
+    let frame: number;
+    let stepTimer = 0;
+
+    const tick = () => {
+      const PW = 32; const PH = isCrouch ? 28 : 48;
+
+      setPlayerX(px => {
+        setPlayerY(py => {
+          setVelY(vy => {
+            setIsOnGround(onGround => {
+              // Horizontal input
+              let dx = 0;
+              if (keys.current["ArrowLeft"] || keys.current["KeyA"]) dx -= SPEED;
+              if (keys.current["ArrowRight"] || keys.current["KeyD"]) dx += SPEED;
+              dx += joystickDir.current.x * SPEED;
+
+              if (dx > 0) setFacingRight(true);
+              if (dx < 0) setFacingRight(false);
+
+              // Jump
+              let newVy = vy + GRAVITY;
+              if ((keys.current["Space"] || keys.current["ArrowUp"] || keys.current["KeyW"]) && onGround) {
+                newVy = JUMP_V;
+              }
+
+              let newPx = Math.max(16, Math.min(SCENE_W - PW - 16, px + dx));
+              let newPy = py + newVy;
+              let landed = false;
+
+              // Collision with walls/platforms
+              for (const w of walls) {
+                if (isColliding(newPx, newPy, PW, PH, w.x, w.y, w.w, w.h)) {
+                  // coming from above → land on top
+                  if (newVy > 0 && py + PH <= w.y + 4) {
+                    newPy = w.y - PH;
+                    newVy = 0;
+                    landed = true;
+                  } else if (newVy < 0 && py >= w.y + w.h - 4) {
+                    newPy = w.y + w.h;
+                    newVy = 1;
+                  } else {
+                    newPx = px;
+                  }
+                }
+              }
+
+              // Step sound
+              if (dx !== 0 && landed) {
+                stepTimer++;
+                if (stepTimer % 18 === 0) playStep();
+              }
+
+              setVelY(newVy);
+              setIsOnGround(landed);
+              setPlayerY(newPy);
+              return landed;
+            });
+            return vy;
+          });
+          return py;
+        });
+        return px;
+      });
+
+      // Move bullets
+      setBullets(bs => {
+        const next = bs.map(b => ({ ...b, x: b.x + b.vx })).filter(b => b.x > 0 && b.x < SCENE_W);
+        // Check bullet-enemy collision
+        const hitIds: number[] = [];
+        next.forEach(b => {
+          setEnemies(es => es.map(e => {
+            if (!e.alive || hitIds.includes(e.id)) return e;
+            if (b.x > e.x && b.x < e.x + 40 && b.y > e.y && b.y < e.y + 50) {
+              hitIds.push(e.id);
+              const dmg = Math.floor(char.stats.атака * 0.4 + Math.random() * 15);
+              const newHp = Math.max(0, e.hp - dmg);
+              addLog(`Попадание! -${dmg}`);
+              playEnemyHit();
+              return { ...e, hp: newHp, alive: newHp > 0, hit: true };
+            }
+            return e;
+          }));
+        });
+        return next.filter(b => !hitIds.some(() => true) || true);
+      });
+
+      // Clear hit flash
+      setEnemies(es => es.map(e => ({ ...e, hit: false })));
+
+      frame = requestAnimationFrame(tick);
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [isCrouch, char.stats.атака, addLog]);
+
+  // Enemy AI — walk toward player and attack
   useEffect(() => {
     const iv = setInterval(() => {
-      if (enemyHp <= 0) return;
-      const dmg = isCrouch ? 2 : Math.floor(5 + Math.random() * 10);
-      setHp(p => Math.max(0, p - dmg));
-      if (dmg > 0) addLog(`Враг атакует! -${dmg}`);
-    }, 2500);
+      setEnemies(es => es.map(e => {
+        if (!e.alive) return e;
+        setPlayerX(px => {
+          const dx = px - e.x;
+          const newX = e.x + Math.sign(dx) * 1.2;
+          setPlayerY(py => {
+            // If close enough — attack player
+            if (Math.abs(dx) < 60 && Math.abs(py - e.y) < 80) {
+              const dmg = isCrouch ? 3 : Math.floor(6 + Math.random() * 10);
+              setHp(h => Math.max(0, h - dmg));
+              addLog(`Враг ${e.id} бьёт! -${dmg}`);
+              playHit();
+            }
+            return py;
+          });
+          return px;
+        });
+        return { ...e, x: newX };
+      }));
+    }, 600);
     return () => clearInterval(iv);
-  }, [isCrouch, enemyHp]);
+  }, [isCrouch, addLog]);
 
+  // Energy regen
   useEffect(() => {
-    const iv = setInterval(() => setEnergy(p => Math.min(char.stats.энергия, p + 2)), 800);
+    const iv = setInterval(() => setEnergy(p => Math.min(char.stats.энергия, p + 2)), 900);
     return () => clearInterval(iv);
   }, [char.stats.энергия]);
 
+  // Ability CD
+  useEffect(() => {
+    if (abilityCD <= 0) return;
+    const iv = setInterval(() => setAbilityCD(p => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [abilityCD]);
+
+  // Define actions
+  const doFire = useCallback(() => {
+    setIsShooting(true);
+    setTimeout(() => setIsShooting(false), 150);
+    playShoot(char.accentColor);
+    setPlayerX(px => {
+      setPlayerY(py => {
+        bulletId.current++;
+        setBullets(bs => [...bs, { id: bulletId.current, x: px + (facingRight ? 36 : -4), y: py + 20, vx: facingRight ? 9 : -9 }]);
+        return py;
+      });
+      return px;
+    });
+    addLog("Выстрел!");
+  }, [char.accentColor, facingRight, addLog]);
+
+  const doAbility = useCallback(() => {
+    if (abilityCD > 0 || energy < 30) { addLog(abilityCD > 0 ? `КД: ${abilityCD}с` : "Мало энергии!"); return; }
+    setEnergy(p => Math.max(0, p - 30));
+    setAbilityCD(6);
+    setAbilityActive(true);
+    playAbility();
+    addLog(`[${char.ability}]!`);
+    // Damage all nearby enemies
+    setPlayerX(px => {
+      setEnemies(es => es.map(e => {
+        if (!e.alive) return e;
+        const dist = Math.abs(e.x - px);
+        if (dist < 200) {
+          const dmg = Math.floor(char.stats.атака * 0.9 + 25);
+          return { ...e, hp: Math.max(0, e.hp - dmg), alive: e.hp - dmg > 0 };
+        }
+        return e;
+      }));
+      return px;
+    });
+    setTimeout(() => setAbilityActive(false), 800);
+  }, [abilityCD, energy, char.ability, char.stats.атака, addLog]);
+
+  const doHeal = useCallback(() => {
+    setHp(p => Math.min(char.hp, p + 20));
+    addLog("+20 HP");
+  }, [char.hp, addLog]);
+
+  const doCrouch = useCallback(() => setIsCrouch(p => !p), []);
+
+  const doJump = useCallback(() => {
+    setIsOnGround(on => {
+      if (on) setVelY(JUMP_V);
+      return on;
+    });
+  }, []);
+
+  // Keep action refs fresh
+  useEffect(() => { doFireRef.current = doFire; }, [doFire]);
+  useEffect(() => { doAbilityRef.current = doAbility; }, [doAbility]);
+  useEffect(() => { doHealRef.current = doHeal; }, [doHeal]);
+
   const hpPct = (hp / char.hp) * 100;
   const ePct = (energy / char.stats.энергия) * 100;
+  const allDead = enemies.every(e => !e.alive);
+
+  const PW = 32; const PH = isCrouch ? 28 : 48;
+
+  // Scale scene to fit viewport
+  const sceneRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="fixed inset-0 overflow-hidden select-none" style={{ background: "#050505", fontFamily: "'Oswald', sans-serif", touchAction: "none" }}>
-      <div className="absolute inset-0 grid-bg opacity-20" />
-
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-32 h-32 hex-shape opacity-10 animate-float" style={{ background: char.accentColor }} />
-        <div className="absolute top-1/3 right-1/4 w-20 h-20 diamond-shape opacity-8 animate-float" style={{ background: "#ff4d4d", animationDelay: "2s" }} />
-      </div>
-
-      {/* Enemy */}
-      <div className={`absolute transition-transform duration-150 ${shake ? "translate-x-2" : ""}`} style={{ top: "20%", right: "15%", textAlign: "center" }}>
-        {enemyHp > 0 ? (
-          <>
-            <div className="w-16 h-16 diamond-shape mx-auto animate-float" style={{ background: "#ff222233", border: "2px solid #ff2222", boxShadow: "0 0 24px #ff222266" }} />
-            <div className="mt-2 w-20 h-1.5 bg-white/10 rounded-full overflow-hidden mx-auto">
-              <div className="h-full bg-red-500 transition-all duration-300" style={{ width: `${enemyHp}%` }} />
-            </div>
-            <p className="text-xs text-red-400 mt-1 tracking-widest">ВРАГ {enemyHp}</p>
-          </>
-        ) : (
-          <p className="text-[#00ff9d] text-sm font-bold tracking-widest animate-pulse-neon">УНИЧТОЖЕН</p>
-        )}
-      </div>
-
-      {/* Player */}
-      <div
-        className="absolute transition-all duration-300"
-        style={{
-          bottom: "27%", left: "15%",
-          transform: `translateY(${isJump ? "-60px" : isCrouch ? "12px" : "0px"}) scaleY(${isCrouch ? 0.7 : 1})`,
-        }}
-      >
-        <GeometricShape shape={char.shape} color={char.accentColor} size={isCrouch ? 40 : 56} />
-        <p className="text-xs text-center mt-1 tracking-widest" style={{ color: char.accentColor }}>{char.name}</p>
-      </div>
-
-      {/* Ability flash */}
-      {abilityActive && (
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center z-20">
-          <p className="text-xl font-bold tracking-widest animate-fade-in" style={{ color: char.accentColor, textShadow: `0 0 30px ${char.accentColor}` }}>
-            {char.ability.toUpperCase()}
-          </p>
-          <div className="absolute inset-0 opacity-10" style={{ background: char.accentColor }} />
-        </div>
-      )}
-
-      {/* TOP HUD */}
-      <div className="absolute top-0 left-0 right-0 p-3 flex items-start gap-3 z-10" style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.85), transparent)" }}>
-        <button
-          onTouchStart={(e) => { e.preventDefault(); onBack(); }}
-          onClick={onBack}
+    <div
+      className="fixed inset-0 overflow-hidden select-none flex flex-col"
+      style={{ background: "#080a0c", fontFamily: "'Oswald', sans-serif", touchAction: "none" }}
+    >
+      {/* ── TOP HUD ── */}
+      <div className="flex items-center gap-3 px-3 py-2 shrink-0 z-10" style={{ background: "rgba(0,0,0,0.85)", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+        <button onTouchStart={(e) => { e.preventDefault(); onBack(); }} onClick={onBack}
           className="w-8 h-8 flex items-center justify-center border border-white/20 rounded shrink-0"
-          style={{ background: "rgba(0,0,0,0.6)" }}
-        >
+          style={{ background: "rgba(0,0,0,0.6)" }}>
           <Icon name="ArrowLeft" size={14} className="text-white/60" />
         </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Icon name="Heart" size={11} className="text-red-400 shrink-0" />
+
+        <div className="flex-1 flex flex-col gap-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Icon name="Heart" size={10} className="text-red-400 shrink-0" />
             <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-300" style={{ width: `${hpPct}%`, background: hpPct > 50 ? "#22c55e" : hpPct > 25 ? "#f59e0b" : "#ef4444" }} />
+              <div className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${hpPct}%`, background: hpPct > 50 ? "#22c55e" : hpPct > 25 ? "#f59e0b" : "#ef4444" }} />
             </div>
-            <span className="text-xs text-white/50 shrink-0" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{hp}/{char.hp}</span>
+            <span className="text-xs text-white/50 w-14 text-right shrink-0" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9 }}>{hp}/{char.hp} HP</span>
           </div>
           <div className="flex items-center gap-2">
-            <Icon name="Zap" size={11} className="text-blue-400 shrink-0" />
+            <Icon name="Zap" size={10} className="text-blue-400 shrink-0" />
             <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full rounded-full transition-all duration-300" style={{ width: `${ePct}%`, background: char.accentColor, boxShadow: `0 0 4px ${char.accentColor}` }} />
+              <div className="h-full rounded-full transition-all duration-300"
+                style={{ width: `${ePct}%`, background: char.accentColor }} />
             </div>
-            <span className="text-xs text-white/40 shrink-0" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{energy}</span>
+            <span className="text-xs text-white/40 w-14 text-right shrink-0" style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9 }}>{energy} ЭН</span>
           </div>
         </div>
+
         <div className="text-right shrink-0">
           <p className="text-xs font-bold" style={{ color: char.accentColor }}>{char.name}</p>
-          <p className="text-xs text-white/30">{char.role}</p>
+          <p className="text-xs text-white/30 tracking-wider">{enemies.filter(e => e.alive).length} врагов</p>
         </div>
       </div>
 
-      {/* LOG */}
-      <div className="absolute top-16 left-3 z-10 pointer-events-none">
-        {log.map((msg, i) => (
-          <p key={i} className="animate-fade-in mb-0.5" style={{
-            color: msg.includes("Враг") ? "#ff6666" : msg.includes("!") && i === 0 ? char.accentColor : "rgba(255,255,255,0.45)",
-            opacity: 1 - i * 0.3,
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 10,
-          }}>
-            {msg}
+      {/* ── GAME SCENE ── */}
+      <div className="flex-1 relative overflow-hidden" ref={sceneRef}>
+        {/* Scene container — scrollable if needed */}
+        <div className="absolute inset-0 flex items-end justify-center overflow-hidden"
+          style={{ background: "linear-gradient(180deg, #0d1117 0%, #111820 50%, #0a0f14 100%)" }}>
+
+          {/* Stars bg */}
+          {[...Array(30)].map((_, i) => (
+            <div key={i} className="absolute rounded-full" style={{
+              width: Math.random() * 2 + 1, height: Math.random() * 2 + 1,
+              left: `${(i * 37 + 13) % 100}%`, top: `${(i * 23 + 7) % 60}%`,
+              background: "white", opacity: 0.2 + (i % 5) * 0.1,
+            }} />
+          ))}
+
+          {/* Scene SVG */}
+          <svg
+            viewBox={`0 0 ${SCENE_W} ${SCENE_H}`}
+            className="w-full h-full"
+            style={{ maxHeight: "100%", overflow: "visible" }}
+          >
+            {/* Background details */}
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
+              </pattern>
+            </defs>
+            <rect width={SCENE_W} height={SCENE_H} fill="url(#grid)" />
+
+            {/* Background wall decorations */}
+            {[80, 200, 400, 600, 800].map(x => (
+              <rect key={x} x={x} y={60} width={3} height={FLOOR_Y - 60}
+                fill="rgba(255,255,255,0.05)" />
+            ))}
+            {[100, 220, 350, 500, 680, 820].map((x, i) => (
+              <rect key={x} x={x} y={80 + i * 20} width={30} height={4}
+                fill="rgba(255,255,255,0.06)" />
+            ))}
+
+            {/* Platforms */}
+            {walls.slice(1, 4).map((w, i) => (
+              <g key={i}>
+                <rect x={w.x} y={w.y} width={w.w} height={w.h}
+                  fill="#1a2535" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+                <rect x={w.x + 2} y={w.y + 2} width={w.w - 4} height={3}
+                  fill="rgba(255,255,255,0.15)" />
+                {w.label && (
+                  <text x={w.x + w.w / 2} y={w.y - 4} textAnchor="middle"
+                    fill="rgba(255,255,255,0.2)" fontSize="8" fontFamily="IBM Plex Mono">
+                    {w.label}
+                  </text>
+                )}
+              </g>
+            ))}
+
+            {/* Floor */}
+            <rect x={0} y={FLOOR_Y} width={SCENE_W} height={100} fill="#0f1923" />
+            <rect x={0} y={FLOOR_Y} width={SCENE_W} height={3} fill={char.accentColor} opacity="0.5" />
+            {[...Array(23)].map((_, i) => (
+              <rect key={i} x={i * 40} y={FLOOR_Y + 3} width={38} height={10}
+                fill={i % 2 === 0 ? "rgba(255,255,255,0.04)" : "transparent"} />
+            ))}
+
+            {/* Left / Right walls */}
+            <rect x={0} y={0} width={14} height={SCENE_H} fill="#0d1520"
+              stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+            <rect x={SCENE_W - 14} y={0} width={14} height={SCENE_H} fill="#0d1520"
+              stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+            {/* Wall rivets */}
+            {[80, 160, 240].map(y => (
+              <g key={y}>
+                <circle cx={7} cy={y} r={3} fill="rgba(255,255,255,0.15)" />
+                <circle cx={SCENE_W - 7} cy={y} r={3} fill="rgba(255,255,255,0.15)" />
+              </g>
+            ))}
+
+            {/* Bullets */}
+            {bullets.map(b => (
+              <g key={b.id}>
+                <ellipse cx={b.x} cy={b.y} rx={8} ry={3} fill={char.accentColor} opacity="0.9" />
+                <ellipse cx={b.x - (b.vx > 0 ? 8 : -8)} cy={b.y} rx={14} ry={2}
+                  fill={char.accentColor} opacity="0.3" />
+              </g>
+            ))}
+
+            {/* Enemies */}
+            {enemies.map(e => e.alive && (
+              <g key={e.id} transform={`translate(${e.x}, ${e.y})`}>
+                {/* Enemy body — red diamond */}
+                <polygon
+                  points="20,0 40,25 20,50 0,25"
+                  fill={e.hit ? "#ffffff" : "#ff2222"}
+                  stroke="#ff4444"
+                  strokeWidth="2"
+                  opacity={e.hit ? 1 : 0.9}
+                  style={{ filter: `drop-shadow(0 0 ${e.hit ? 12 : 6}px #ff2222)` }}
+                />
+                {/* Enemy eye */}
+                <circle cx="20" cy="22" r="5" fill="#000" />
+                <circle cx="20" cy="22" r="2" fill="#ff8888" />
+                {/* HP bar above enemy */}
+                <rect x="0" y="-10" width="40" height="4" fill="rgba(0,0,0,0.6)" rx="2" />
+                <rect x="0" y="-10" width={40 * (e.hp / e.maxHp)} height="4" fill="#ff4444" rx="2" />
+              </g>
+            ))}
+
+            {/* Player */}
+            <g transform={`translate(${playerX}, ${playerY}) scale(${facingRight ? 1 : -1}, 1) translate(${facingRight ? 0 : -PW}, 0)`}>
+              {/* Shadow */}
+              <ellipse cx={PW / 2} cy={PH + 3} rx={PW / 2 - 2} ry={4}
+                fill="rgba(0,0,0,0.4)" />
+              {/* Body */}
+              {char.shape === "hex" ? (
+                <polygon
+                  points={`${PW/2},0 ${PW},${PH*0.3} ${PW},${PH*0.7} ${PW/2},${PH} 0,${PH*0.7} 0,${PH*0.3}`}
+                  fill={char.accentColor + "cc"}
+                  stroke={char.accentColor}
+                  strokeWidth="2"
+                  style={{ filter: `drop-shadow(0 0 8px ${char.accentColor})` }}
+                />
+              ) : char.shape === "diamond" ? (
+                <polygon
+                  points={`${PW/2},0 ${PW},${PH/2} ${PW/2},${PH} 0,${PH/2}`}
+                  fill={char.accentColor + "cc"}
+                  stroke={char.accentColor}
+                  strokeWidth="2"
+                  style={{ filter: `drop-shadow(0 0 8px ${char.accentColor})` }}
+                />
+              ) : (
+                <polygon
+                  points={`${PW/2},0 ${PW},${PH} 0,${PH}`}
+                  fill={char.accentColor + "cc"}
+                  stroke={char.accentColor}
+                  strokeWidth="2"
+                  style={{ filter: `drop-shadow(0 0 8px ${char.accentColor})` }}
+                />
+              )}
+              {/* Gun flash when shooting */}
+              {isShooting && (
+                <ellipse cx={PW + 8} cy={PH / 2} rx={12} ry={6}
+                  fill={char.accentColor} opacity="0.8" />
+              )}
+            </g>
+
+            {/* Ability flash overlay */}
+            {abilityActive && (
+              <rect x={0} y={0} width={SCENE_W} height={SCENE_H}
+                fill={char.accentColor} opacity="0.12" />
+            )}
+          </svg>
+        </div>
+
+        {/* Log overlay */}
+        <div className="absolute top-2 left-3 pointer-events-none z-10">
+          {log.map((msg, i) => (
+            <p key={i} style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 10,
+              color: msg.includes("Враг") ? "#ff6666" : msg.includes("!") && i === 0 ? char.accentColor : "rgba(255,255,255,0.5)",
+              opacity: 1 - i * 0.25,
+            }}>{msg}</p>
+          ))}
+        </div>
+
+        {/* PC controls hint */}
+        <div className="absolute bottom-2 right-3 pointer-events-none z-10 hidden md:block">
+          <p style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: "rgba(255,255,255,0.2)" }}>
+            WASD/←→ — движение · Пробел — прыжок · C — присесть · F — огонь · E — способность · H — аптечка
           </p>
-        ))}
+        </div>
       </div>
 
-      {/* BOTTOM CONTROLS */}
+      {/* ── MOBILE CONTROLS (скрыты на ПК) ── */}
       <div
-        className="absolute bottom-0 left-0 right-0 flex items-end justify-between px-4 pb-5 pt-3 z-10"
-        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.9), transparent)" }}
+        className="shrink-0 flex items-end justify-between px-3 pb-4 pt-2 md:hidden"
+        style={{ background: "rgba(0,0,0,0.85)", borderTop: "1px solid rgba(255,255,255,0.08)" }}
       >
-        {/* LEFT — Joystick + crouch/jump */}
+        {/* LEFT: joystick + jump/crouch */}
         <div className="flex flex-col items-center gap-2">
-          <Joystick onMove={() => {}} />
+          <Joystick onMove={(x, y) => { joystickDir.current = { x, y }; }} />
           <div className="flex gap-2">
-            <ActionBtn label={isCrouch ? "ВСТАТЬ" : "ПРИСЕСТЬ"} color="#a78bff" size={54} onPress={doCrouch} icon="ArrowDown" />
-            <ActionBtn label="ПРЫЖОК" color="#00aaff" size={54} onPress={doJump} icon="ArrowUp" />
+            <ActionBtn label={isCrouch ? "ВСТАТЬ" : "ПРИСЕСТЬ"} color="#a78bff" size={52} onPress={doCrouch} icon="ArrowDown" />
+            <ActionBtn label="ПРЫЖОК" color="#00aaff" size={52} onPress={doJump} icon="ArrowUp" />
           </div>
         </div>
 
-        {/* RIGHT — combat buttons */}
+        {/* RIGHT: combat */}
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-2 items-center">
-            <ActionBtn label="АПТЕЧКА" color="#22c55e" size={52} onPress={doHeal} icon="Heart" />
+            <ActionBtn label="АПТЕЧКА" color="#22c55e" size={50} onPress={doHeal} icon="Heart" />
             <ActionBtn
-              label={abilityCD > 0 ? `КД ${abilityCD}с` : "СПОСОБН."}
-              color={char.accentColor}
-              size={62}
-              onPress={doAbility}
-              icon="Sparkles"
+              label={abilityCD > 0 ? `КД ${abilityCD}` : "СПОСОБН."}
+              color={char.accentColor} size={60}
+              onPress={doAbility} icon="Sparkles"
             />
           </div>
           <div className="flex gap-2 items-center">
-            <ActionBtn label="УДАР" color="#f59e0b" size={56} onPress={doMelee} icon="Swords" />
-            <ActionBtn label="ОГОНЬ" color="#ff4d4d" size={74} onPress={doFire} icon="Target" />
+            <ActionBtn label="УДАР" color="#f59e0b" size={54} onPress={() => { playHit(); addLog("Удар!"); }} icon="Swords" />
+            <ActionBtn label="ОГОНЬ" color="#ff4d4d" size={72} onPress={doFire} icon="Target" />
           </div>
         </div>
       </div>
 
-      {/* DEFEAT */}
+      {/* ── PC CONTROLS (скрыты на мобиле) ── */}
+      <div
+        className="shrink-0 hidden md:flex items-center justify-center gap-4 px-6 py-3"
+        style={{ background: "rgba(0,0,0,0.85)", borderTop: "1px solid rgba(255,255,255,0.08)" }}
+      >
+        {[
+          { key: "A/D", label: "Движение" },
+          { key: "Пробел", label: "Прыжок" },
+          { key: "C", label: "Присесть" },
+          { key: "F", label: "Огонь" },
+          { key: "E", label: char.ability },
+          { key: "H", label: "Аптечка" },
+        ].map(k => (
+          <div key={k.key} className="flex items-center gap-1.5">
+            <span className="px-2 py-1 rounded text-xs font-bold"
+              style={{ background: "rgba(255,255,255,0.1)", color: char.accentColor, fontFamily: "'IBM Plex Mono', monospace", border: `1px solid ${char.accentColor}44` }}>
+              {k.key}
+            </span>
+            <span className="text-xs text-white/40">{k.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── DEFEAT ── */}
       {hp <= 0 && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.9)" }}>
+        <div className="absolute inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.92)" }}>
           <div className="text-center animate-fade-in">
-            <p className="text-5xl font-bold text-red-500 mb-4 tracking-widest">ПОРАЖЕНИЕ</p>
-            <button onClick={onBack} className="geo-clip px-8 py-3 text-lg font-bold tracking-widest text-black" style={{ background: "#ff4d4d" }}>
+            <p className="text-6xl font-bold text-red-500 mb-2 tracking-widest">ПОРАЖЕНИЕ</p>
+            <p className="text-white/30 mb-6 tracking-widest text-sm">Ты пал в бою</p>
+            <button onClick={onBack} className="geo-clip px-10 py-4 text-xl font-bold tracking-widest text-black"
+              style={{ background: "#ff4d4d", boxShadow: "0 0 24px #ff4d4d88" }}>
               В МЕНЮ
             </button>
           </div>
         </div>
       )}
 
-      {/* VICTORY */}
-      {enemyHp <= 0 && hp > 0 && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none" style={{ background: "rgba(0,0,0,0.7)" }}>
+      {/* ── VICTORY ── */}
+      {allDead && hp > 0 && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.85)" }}>
           <div className="text-center animate-fade-in">
-            <p className="text-5xl font-bold mb-2 tracking-widest" style={{ color: char.accentColor }}>ПОБЕДА!</p>
-            <p className="text-white/40 tracking-widest text-sm">Враг уничтожен</p>
+            <p className="text-6xl font-bold mb-2 tracking-widest" style={{ color: char.accentColor }}>ПОБЕДА!</p>
+            <p className="text-white/30 mb-6 tracking-widest text-sm">Все враги уничтожены</p>
+            <button onClick={onBack} className="geo-clip px-10 py-4 text-xl font-bold tracking-widest text-black"
+              style={{ background: char.accentColor, boxShadow: `0 0 24px ${char.accentColor}88` }}>
+              В МЕНЮ
+            </button>
           </div>
         </div>
       )}
