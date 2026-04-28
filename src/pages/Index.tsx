@@ -467,52 +467,61 @@ export default function Index() {
 
       {/* ═══ CHARACTERS ═══ */}
       {screen === "characters" && (
-        <div className="min-h-screen p-4 md:p-10 relative z-10 pb-10">
-          <div className="flex items-center gap-4 mb-6 animate-fade-in">
-            <button onClick={() => setScreen("menu")} className="text-white/30 hover:text-[#00ff9d] transition-colors">
+        <div className="min-h-screen flex flex-col p-4 md:p-10 relative z-10">
+          {/* Header */}
+          <div className="flex items-center gap-4 mb-4 shrink-0">
+            <button onClick={() => setScreen("menu")} className="text-white/30 hover:text-[#00ff9d] transition-colors p-2">
               <Icon name="ArrowLeft" size={20} />
             </button>
             <div className="h-px flex-1 bg-white/10" />
             <span className="text-xs tracking-[0.5em] text-white/30" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>ПЕРСОНАЖИ</span>
           </div>
 
-          <h2 className="text-4xl md:text-6xl font-bold text-white mb-5 animate-fade-in stagger-1" style={{ animationFillMode: "forwards", opacity: 0 }}>ПЕРСОНАЖИ</h2>
+          <h2 className="text-4xl font-bold text-white mb-4 shrink-0">ПЕРСОНАЖИ</h2>
 
-          <div className="flex md:grid md:grid-cols-3 gap-4 overflow-x-auto pb-4 snap-x snap-mandatory">
+          {/* Cards — горизонтальный скролл на мобиле, сетка на desktop */}
+          <div className="flex md:grid md:grid-cols-3 gap-4 overflow-x-auto pb-2 shrink-0" style={{ scrollSnapType: "x mandatory" }}>
             {characters.map((c, i) => (
-              <button
+              <div
                 key={c.id}
+                onTouchEnd={() => setSelectedChar(i)}
                 onClick={() => setSelectedChar(i)}
-                className={`char-card animate-fade-in text-left p-4 md:p-6 border bg-black/40 transition-all shrink-0 w-[280px] md:w-auto snap-center stagger-${i + 2} ${selectedChar === i ? "active" : "border-white/10 hover:border-white/20"}`}
-                style={{ animationFillMode: "forwards", opacity: 0 }}
+                className={`text-left p-4 border bg-black/40 transition-all cursor-pointer shrink-0 w-[270px] md:w-auto ${selectedChar === i ? "active" : "border-white/10"}`}
+                style={{ scrollSnapAlign: "start", borderColor: selectedChar === i ? c.accentColor : undefined, boxShadow: selectedChar === i ? `0 0 16px ${c.accentColor}44` : undefined }}
               >
-                <div className="flex items-start justify-between mb-4">
-                  <GeometricShape shape={c.shape} color={c.accentColor} size={52} />
+                <div className="flex items-start justify-between mb-3">
+                  <GeometricShape shape={c.shape} color={c.accentColor} size={48} />
                   <span className="text-xs tracking-widest px-2 py-1 geo-clip-sm" style={{ background: `${c.accentColor}22`, color: c.accentColor, fontFamily: "'IBM Plex Mono', monospace" }}>
                     {c.role}
                   </span>
                 </div>
                 <h3 className="text-3xl font-bold mb-1" style={{ color: selectedChar === i ? c.accentColor : "#fff" }}>{c.name}</h3>
-                <p className="text-xs text-white/40 mb-4 italic">{c.desc}</p>
-                <div className="border border-white/10 p-3 geo-clip-sm mb-4" style={{ background: `${c.accentColor}0a` }}>
-                  <p className="text-xs tracking-widest mb-1" style={{ color: c.accentColor, fontFamily: "'IBM Plex Mono', monospace" }}>{c.ability}</p>
+                <p className="text-xs text-white/40 mb-3 italic">{c.desc}</p>
+                <div className="border border-white/10 p-2 geo-clip-sm mb-3" style={{ background: `${c.accentColor}0a` }}>
+                  <p className="text-xs mb-1" style={{ color: c.accentColor, fontFamily: "'IBM Plex Mono', monospace" }}>{c.ability}</p>
                   <p className="text-xs text-white/50 leading-relaxed">{c.abilityDesc}</p>
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1.5">
                   {Object.entries(c.stats).map(([k, v]) => <StatBar key={k} label={k} value={v} color={c.accentColor} />)}
                 </div>
-              </button>
+              </div>
             ))}
           </div>
 
-          <div className="flex justify-center md:justify-end mt-6 animate-fade-in">
-            <button
+          {/* CTA кнопка — всегда видна, не перекрывается */}
+          <div className="mt-6 shrink-0">
+            <div
+              onTouchEnd={() => setScreen("game")}
               onClick={() => setScreen("game")}
-              className="geo-clip px-8 py-4 text-lg font-bold tracking-widest transition-all hover:scale-105 active:scale-95"
-              style={{ background: characters[selectedChar].accentColor, color: "#0a0a0a", boxShadow: `0 0 24px ${characters[selectedChar].accentColor}88` }}
+              className="geo-clip w-full flex items-center justify-center py-5 text-xl font-bold tracking-widest cursor-pointer active:opacity-80 transition-opacity"
+              style={{
+                background: characters[selectedChar].accentColor,
+                color: "#0a0a0a",
+                boxShadow: `0 0 30px ${characters[selectedChar].accentColor}66`,
+              }}
             >
               ИГРАТЬ ЗА {characters[selectedChar].name} →
-            </button>
+            </div>
           </div>
         </div>
       )}
