@@ -438,25 +438,27 @@ function GameScreen({ char, onBack }: { char: typeof characters[0]; onBack: () =
   }, [isCrouch, char.stats.атака, addLog]);
 
   // Enemy AI — walk toward player and attack
+  const playerXRef = useRef(120);
+  const playerYRef = useRef(300);
+
+  useEffect(() => { playerXRef.current = playerX; }, [playerX]);
+  useEffect(() => { playerYRef.current = playerY; }, [playerY]);
+
   useEffect(() => {
     const iv = setInterval(() => {
+      const px = playerXRef.current;
+      const py = playerYRef.current;
       setEnemies(es => es.map(e => {
         if (!e.alive) return e;
-        setPlayerX(px => {
-          const dx = px - e.x;
-          const newX = e.x + Math.sign(dx) * 1.2;
-          setPlayerY(py => {
-            // If close enough — attack player
-            if (Math.abs(dx) < 60 && Math.abs(py - e.y) < 80) {
-              const dmg = isCrouch ? 3 : Math.floor(6 + Math.random() * 10);
-              setHp(h => Math.max(0, h - dmg));
-              addLog(`Враг ${e.id} бьёт! -${dmg}`);
-              playHit();
-            }
-            return py;
-          });
-          return px;
-        });
+        const dx = px - e.x;
+        const newX = e.x + Math.sign(dx) * 1.2;
+        // If close enough — attack player
+        if (Math.abs(dx) < 60 && Math.abs(py - e.y) < 80) {
+          const dmg = isCrouch ? 3 : Math.floor(6 + Math.random() * 10);
+          setHp(h => Math.max(0, h - dmg));
+          addLog(`Враг ${e.id} бьёт! -${dmg}`);
+          playHit();
+        }
         return { ...e, x: newX };
       }));
     }, 600);
